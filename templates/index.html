@@ -89,51 +89,64 @@
           <span class="score-value" id="score-value">0 / 5</span>
         </div>
 
+        <!-- Signal explanation -->
+        <p class="signal-explanation" id="signal-explanation"></p>
+
         <!-- Divider -->
         <div class="divider"></div>
 
         <!-- 10 Financial Metrics grid -->
-        <div class="section-label">KEY METRICS</div>
+        <div class="section-label">KEY METRICS — CURRENT VALUES</div>
         <div class="metrics-grid">
           <div class="metric-card">
             <div class="metric-label">P/E Ratio</div>
             <div class="metric-value" id="m-pe">—</div>
+            <div class="metric-context">Trailing 12-month earnings multiple</div>
           </div>
           <div class="metric-card">
-            <div class="metric-label">EPS</div>
+            <div class="metric-label">EPS (TTM)</div>
             <div class="metric-value" id="m-eps">—</div>
+            <div class="metric-context">Earnings per share, trailing 12 months</div>
           </div>
           <div class="metric-card">
             <div class="metric-label">Market Cap</div>
             <div class="metric-value" id="m-mktcap">—</div>
+            <div class="metric-context">Total market capitalisation</div>
           </div>
           <div class="metric-card">
             <div class="metric-label">Revenue (TTM)</div>
             <div class="metric-value" id="m-revenue">—</div>
+            <div class="metric-context">Total sales, trailing 12 months</div>
           </div>
           <div class="metric-card">
             <div class="metric-label">Gross Margin</div>
             <div class="metric-value" id="m-grossmargin">—</div>
+            <div class="metric-context">Revenue minus cost of goods sold</div>
           </div>
           <div class="metric-card">
             <div class="metric-label">Debt / Equity</div>
             <div class="metric-value" id="m-de">—</div>
+            <div class="metric-context">Total debt relative to equity; &gt;2× is high</div>
           </div>
           <div class="metric-card">
             <div class="metric-label">ROE</div>
             <div class="metric-value" id="m-roe">—</div>
+            <div class="metric-context">Return on equity; &gt;15% is strong</div>
           </div>
           <div class="metric-card">
             <div class="metric-label">P/B Ratio</div>
             <div class="metric-value" id="m-pb">—</div>
+            <div class="metric-context">Price relative to book value per share</div>
           </div>
           <div class="metric-card metric-wide">
-            <div class="metric-label">52-Week Range</div>
+            <div class="metric-label">52-Week Range <span class="metric-range-current" id="m-52w-label"></span></div>
             <div class="metric-value" id="m-52w">—</div>
+            <div class="metric-range-bar"><div class="range-fill" id="m-52w-fill" style="width:0%"></div></div>
           </div>
           <div class="metric-card">
             <div class="metric-label">Dividend Yield</div>
             <div class="metric-value" id="m-divyield">—</div>
+            <div class="metric-context">Annual dividend as % of share price</div>
           </div>
         </div>
 
