@@ -68,6 +68,78 @@ function setText(id, text, cssClass = '') {
   el.textContent = text;
   el.className = el.className.replace(/\b(positive|negative|na)\b/g, '').trim();
   if (cssClass) el.classList.add(cssClass);
+  if (text === '—') el.classList.add('na');
+}
+
+// ── Signal explanation builder ────────────────────────────────────────────────
+
+function joinList(parts) {
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+}
+
+function buildExplanation(data) {
+  const votes   = data.votes   || {};
+  const details = data.details || {};
+  const signal  = (data.signal || 'HOLD').toUpperCase();
+  const score   = data.score ?? 0;
+  const ticker  = data.ticker || 'This stock';
+  const sentences = [];
+
+  // No intraday data case
+  if (details.error === 'no_intraday_data') {
+    return `No intraday data is available for ${ticker} today. The signal defaults to HOLD until the 9:40 AM ET morning refresh provides first-10-minute bar data. Check back after market open.`;
+  }
+
+  // Sentence 1 — overall signal and conviction level
+  const scoreAbs   = Math.abs(score);
+  const conviction = scoreAbs >= 4 ? 'strong' : scoreAbs >= 3 ? 'moderate' : 'marginal';
+  if (signal === 'BUY') {
+    sentences.push(`${ticker} earns a ${conviction} BUY signal (+${score}/5) based on early-session price action.`);
+  } else if (signal === 'SELL') {
+    sentences.push(`${ticker} earns a ${conviction} SELL signal (${score}/5) based on early-session price action.`);
+  } else {
+    sentences.push(`${ticker} earns a HOLD signal (${score > 0 ? '+' : ''}${score}/5), reflecting no strong directional bias in the first 10 minutes of trading.`);
+  }
+
+  // Sentences 2-3 — supporting evidence
+  const bullParts = [];
+  const bearParts = [];
+
+  if (votes.gap === 1 && details.gap_pct != null)
+    bullParts.push(`a bullish opening gap of +${Math.abs(details.gap_pct).toFixed(1)}% vs yesterday's close`);
+  else if (votes.gap === -1 && details.gap_pct != null)
+    bearParts.push(`a bearish opening gap of −${Math.abs(details.gap_pct).toFixed(1)}% vs yesterday's close`);
+
+  if (votes.momentum === 1 && details.momentum_pct != null)
+    bullParts.push(`upward 10-min price momentum of +${Math.abs(details.momentum_pct).toFixed(2)}%`);
+  else if (votes.momentum === -1 && details.momentum_pct != null)
+    bearParts.push(`downward 10-min price momentum of −${Math.abs(details.momentum_pct).toFixed(2)}%`);
+
+  if (votes.vwap === 1)  bullParts.push('price trading above VWAP (institutional buy zone)');
+  else if (votes.vwap === -1) bearParts.push('price trading below VWAP (institutional sell zone)');
+
+  if (votes.volume === 1 && details.vol_ratio != null)
+    bullParts.push(`elevated volume at ${details.vol_ratio.toFixed(1)}× expected, confirming momentum`);
+
+  if (votes.macro_trend === 1)  bullParts.push('supportive macro Google Trends sentiment');
+  else if (votes.macro_trend === -1) bearParts.push('elevated bearish macro search terms (recession/unemployment)');
+
+  if (bullParts.length > 0)
+    sentences.push(`Bullish factors: ${joinList(bullParts)}.`);
+  if (bearParts.length > 0)
+    sentences.push(`Bearish factors: ${joinList(bearParts)}.`);
+
+  // Final sentence — always present
+  if (signal === 'BUY')
+    sentences.push('These early signals suggest institutional buying pressure — validate with sector context and broader market conditions before acting.');
+  else if (signal === 'SELL')
+    sentences.push('Early weakness may reflect distribution or news-driven selling — confirm with stop-loss discipline and fundamental checks before acting.');
+  else
+    sentences.push('Monitor for a volume-confirmed breakout above or below VWAP before committing capital; mixed signals call for patience.');
+
+  return sentences.join(' ');
 }
 
 // ── Universe loading ──────────────────────────────────────────────────────────
@@ -236,16 +308,34 @@ function renderStockPanel(data) {
   setText('m-roe',         fmt(data.roe,            'pct'));
   setText('m-pb',          fmt(data.pb_ratio,       'multiple'));
 
-  const hi = data.week_52_high, lo = data.week_52_low;
-  document.getElementById('m-52w').textContent =
-    (hi != null && lo != null) ? `$${parseFloat(lo).toFixed(2)} – $${parseFloat(hi).toFixed(2)}` : '—';
+  // 52-week range with position indicator
+  const hi = data.week_52_high, lo = data.week_52_low, cp = data.current_price;
+  if (hi != null && lo != null) {
+    document.getElementById('m-52w').textContent =
+      `$${parseFloat(lo).toFixed(2)} – $${parseFloat(hi).toFixed(2)}`;
+    const rangeFill  = document.getElementById('m-52w-fill');
+    const rangeLabel = document.getElementById('m-52w-label');
+    if (rangeFill && cp != null && hi > lo) {
+      const pct = Math.min(100, Math.max(0, ((cp - lo) / (hi - lo)) * 100));
+      rangeFill.style.width = pct.toFixed(1) + '%';
+      if (rangeLabel) rangeLabel.textContent = `▸ ${pct.toFixed(0)}% of range`;
+    }
+  } else {
+    document.getElementById('m-52w').textContent = '—';
+    document.getElementById('m-52w').classList.add('na');
+  }
 
   const dy = data.dividend_yield;
   document.getElementById('m-divyield').textContent =
     dy != null ? (dy * 100).toFixed(2) + '%' : '—';
+  if (dy == null) document.getElementById('m-divyield').classList.add('na');
 
   // Apply colour hints to key metrics
   applyMetricColors(data);
+
+  // Signal explanation
+  const explanationEl = document.getElementById('signal-explanation');
+  if (explanationEl) explanationEl.textContent = buildExplanation(data);
 
   // Indicator votes
   renderVotes(data.votes || {});
@@ -316,12 +406,16 @@ function renderTrends(trends) {
   const maxScore = Math.max(...trends.map(t => t.score), 1);
 
   const html = trends.map((t, i) => {
-    const barPct = Math.round((t.score / maxScore) * 100);
+    const barPct   = Math.round((t.score / maxScore) * 100);
     const barClass = barPct >= 70 ? 'high' : barPct >= 40 ? 'medium' : 'low';
+    // HOT = absolute score ≥ 70; NOT = absolute score ≤ 30
+    const badgeCls  = t.score >= 70 ? 'hot' : t.score <= 30 ? 'not' : 'warm';
+    const badgeTxt  = t.score >= 70 ? 'HOT' : t.score <= 30 ? 'NOT' : '';
     return `
       <div class="trend-item">
         <span class="trend-rank">${i + 1}</span>
         <span class="trend-term">${t.term}</span>
+        <span class="trend-badge ${badgeCls}">${badgeTxt}</span>
         <div class="trend-bar-wrap">
           <div class="trend-bar ${barClass}" style="width:0%" data-target="${barPct}%"></div>
         </div>
