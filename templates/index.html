@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LSP — Longshot Stock Prediction</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-left">
+      <span class="logo">LSP</span>
+      <span class="logo-sub">Longshot Stock Prediction</span>
+    </div>
+    <div class="header-right">
+      <span class="refresh-label">Data as of:</span>
+      <span class="refresh-time" id="refresh-time">{{ last_refresh }}</span>
+      <span class="refresh-note">— refreshed daily at 9:40 AM ET</span>
+    </div>
+  </header>
+
+  <!-- ── Stock Selector ──────────────────────────────────────────────────── -->
+  <div class="selector-bar">
+    <div class="search-wrapper" id="search-wrapper">
+      <div class="search-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+      </div>
+      <input
+        type="text"
+        id="stock-input"
+        class="stock-input"
+        placeholder="Search S&amp;P 500 stocks by ticker or name…"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <div class="input-spinner hidden" id="input-spinner">
+        <div class="spinner-ring"></div>
+      </div>
+      <div class="dropdown" id="dropdown"></div>
+    </div>
+  </div>
+
+  <!-- ── Main Content Grid ───────────────────────────────────────────────── -->
+  <main class="content-grid">
+
+    <!-- Left: Stock Panel -->
+    <section class="stock-panel" id="stock-panel">
+
+      <!-- Empty state -->
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2A2A2A" stroke-width="1.5">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+        </div>
+        <p class="empty-title">Select a stock to begin</p>
+        <p class="empty-sub">Search for any S&amp;P 500 company above</p>
+      </div>
+
+      <!-- Stock data (hidden until selection) -->
+      <div class="stock-data hidden" id="stock-data">
+
+        <!-- Stock header row -->
+        <div class="stock-header">
+          <div class="stock-identity">
+            <span class="company-name" id="company-name">—</span>
+            <span class="ticker-badge" id="ticker-badge">—</span>
+            <span class="sector-tag" id="sector-tag"></span>
+          </div>
+          <div class="price-signal-group">
+            <div class="current-price" id="current-price">—</div>
+            <div class="signal-badge" id="signal-badge">—</div>
+          </div>
+        </div>
+
+        <!-- Score bar -->
+        <div class="score-bar-row" id="score-bar-row">
+          <span class="score-label">Signal Score</span>
+          <div class="score-track">
+            <div class="score-fill" id="score-fill"></div>
+          </div>
+          <span class="score-value" id="score-value">0 / 5</span>
+        </div>
+
+        <!-- Divider -->
+        <div class="divider"></div>
+
+        <!-- 10 Financial Metrics grid -->
+        <div class="section-label">KEY METRICS</div>
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-label">P/E Ratio</div>
+            <div class="metric-value" id="m-pe">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">EPS</div>
+            <div class="metric-value" id="m-eps">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Market Cap</div>
+            <div class="metric-value" id="m-mktcap">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Revenue (TTM)</div>
+            <div class="metric-value" id="m-revenue">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Gross Margin</div>
+            <div class="metric-value" id="m-grossmargin">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Debt / Equity</div>
+            <div class="metric-value" id="m-de">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">ROE</div>
+            <div class="metric-value" id="m-roe">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">P/B Ratio</div>
+            <div class="metric-value" id="m-pb">—</div>
+          </div>
+          <div class="metric-card metric-wide">
+            <div class="metric-label">52-Week Range</div>
+            <div class="metric-value" id="m-52w">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Dividend Yield</div>
+            <div class="metric-value" id="m-divyield">—</div>
+          </div>
+        </div>
+
+        <!-- Signal detail row -->
+        <div class="votes-row" id="votes-row"></div>
+
+      </div>
+
+      <!-- Loading overlay -->
+      <div class="stock-loading hidden" id="stock-loading">
+        <div class="spinner-ring large"></div>
+        <span>Fetching market data…</span>
+      </div>
+
+    </section>
+
+    <!-- Right: Google Trends Panel -->
+    <section class="trends-panel">
+      <div class="trends-header">
+        <span class="trends-title">GOOGLE TRENDS</span>
+        <span class="trends-window">Last 7 days — US</span>
+      </div>
+
+      <div id="trends-list">
+        <!-- Skeleton placeholders while loading -->
+        <div class="trend-skeleton" id="trends-skeleton">
+          <div class="skeleton-row" style="--w:72%"></div>
+          <div class="skeleton-row" style="--w:65%"></div>
+          <div class="skeleton-row" style="--w:58%"></div>
+          <div class="skeleton-row" style="--w:53%"></div>
+          <div class="skeleton-row" style="--w:47%"></div>
+          <div class="skeleton-row" style="--w:42%"></div>
+          <div class="skeleton-row" style="--w:38%"></div>
+          <div class="skeleton-row" style="--w:33%"></div>
+          <div class="skeleton-row" style="--w:28%"></div>
+          <div class="skeleton-row" style="--w:22%"></div>
+        </div>
+      </div>
+
+      <div class="trends-footer">
+        <span class="macro-label">Macro sentiment:</span>
+        <span class="macro-vote" id="macro-vote">—</span>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
