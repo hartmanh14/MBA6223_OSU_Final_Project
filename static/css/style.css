@@ -1,0 +1,625 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   LSP — Longshot Stock Prediction
+   Design: Bloomberg meets Apple — elegant, minimal, professional
+   Palette: #0D0D0D (bg) · #FFFFFF (text) · #A8C8E8 (accent)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Reset & Base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: #0D0D0D;
+  color: #FFFFFF;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Layout shell ─────────────────────────────────────────────────────────── */
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.header {
+  flex-shrink: 0;
+  height: 54px;
+  background: #0D0D0D;
+  border-bottom: 1px solid #1E1E1E;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  z-index: 100;
+}
+
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.logo {
+  font-size: 18px;
+  font-weight: 700;
+  color: #A8C8E8;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+.logo-sub {
+  font-size: 10px;
+  font-weight: 400;
+  color: #444;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #555;
+}
+
+.refresh-label { color: #444; }
+.refresh-time  { color: #888; font-weight: 500; }
+.refresh-note  { color: #444; }
+
+/* ── Selector bar ─────────────────────────────────────────────────────────── */
+.selector-bar {
+  flex-shrink: 0;
+  height: 58px;
+  background: #0D0D0D;
+  border-bottom: 1px solid #181818;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+}
+
+/* ── Search / dropdown ────────────────────────────────────────────────────── */
+.search-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #555;
+  pointer-events: none;
+  display: flex;
+}
+
+.stock-input {
+  width: 100%;
+  height: 36px;
+  background: #141414;
+  border: 1px solid #2A2A2A;
+  border-radius: 6px;
+  color: #FFF;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 0 40px 0 38px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.stock-input::placeholder { color: #444; }
+.stock-input:focus { border-color: #A8C8E8; }
+
+.input-spinner {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #141414;
+  border: 1px solid #2A2A2A;
+  border-radius: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 200;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.dropdown:empty { display: none; }
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.dropdown-item:hover,
+.dropdown-item.focused { background: #1E1E1E; }
+
+.dropdown-ticker {
+  font-size: 12px;
+  font-weight: 600;
+  color: #A8C8E8;
+  width: 52px;
+  flex-shrink: 0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.dropdown-company {
+  font-size: 12px;
+  color: #AAA;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dropdown-sector {
+  margin-left: auto;
+  font-size: 10px;
+  color: #555;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dropdown-no-results {
+  padding: 14px;
+  color: #555;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ── Content grid ─────────────────────────────────────────────────────────── */
+.content-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 58fr 42fr;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── Stock panel ──────────────────────────────────────────────────────────── */
+.stock-panel {
+  border-right: 1px solid #181818;
+  padding: 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Empty state */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #333;
+}
+
+.empty-icon { margin-bottom: 4px; }
+
+.empty-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #444;
+}
+
+.empty-sub {
+  font-size: 11px;
+  color: #333;
+}
+
+/* Stock data */
+.stock-data {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+}
+
+/* Stock header */
+.stock-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.stock-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.company-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+
+.ticker-badge {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #A8C8E8;
+  background: rgba(168, 200, 232, 0.1);
+  border: 1px solid rgba(168, 200, 232, 0.2);
+  padding: 2px 8px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+
+.sector-tag {
+  font-size: 10px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.price-signal-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.current-price {
+  font-size: 22px;
+  font-weight: 300;
+  color: #FFFFFF;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Signal badge — the hero element */
+.signal-badge {
+  display: inline-block;
+  padding: 6px 22px;
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  min-width: 90px;
+  text-align: center;
+  transition: background 0.2s, color 0.2s;
+}
+
+.signal-buy  { background: #00C853; color: #0A0A0A; }
+.signal-hold { background: #FFB300; color: #0A0A0A; }
+.signal-sell { background: #FF1744; color: #FFFFFF; }
+.signal-none { background: #2A2A2A; color: #666;    }
+
+/* Score bar */
+.score-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.score-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #555;
+  flex-shrink: 0;
+  width: 84px;
+}
+
+.score-track {
+  flex: 1;
+  height: 4px;
+  background: #1E1E1E;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.score-fill {
+  height: 100%;
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.5s ease, background 0.3s;
+}
+
+.score-value {
+  font-size: 11px;
+  color: #666;
+  font-variant-numeric: tabular-nums;
+  width: 36px;
+  text-align: right;
+}
+
+/* Divider */
+.divider {
+  height: 1px;
+  background: #1A1A1A;
+}
+
+/* Section label */
+.section-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: #444;
+  text-transform: uppercase;
+}
+
+/* Metrics grid */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.metric-card {
+  background: #111;
+  border: 1px solid #1E1E1E;
+  border-radius: 5px;
+  padding: 9px 12px;
+  transition: border-color 0.15s;
+}
+
+.metric-card:hover { border-color: #2A2A2A; }
+
+.metric-wide {
+  grid-column: span 1;
+}
+
+.metric-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #555;
+  margin-bottom: 3px;
+}
+
+.metric-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: #E0E0E0;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-value.positive { color: #00C853; }
+.metric-value.negative { color: #FF4444; }
+.metric-value.na       { color: #444; font-weight: 400; }
+
+/* Votes row */
+.votes-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: -4px;
+}
+
+.vote-chip {
+  font-size: 10px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  border: 1px solid;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+.vote-up   { color: #00C853; border-color: rgba(0,200,83,0.3);  background: rgba(0,200,83,0.05);  }
+.vote-down { color: #FF4444; border-color: rgba(255,68,68,0.3); background: rgba(255,68,68,0.05); }
+.vote-flat { color: #555;    border-color: #222;                background: #111;                  }
+
+/* Stock loading overlay */
+.stock-loading {
+  position: absolute;
+  inset: 0;
+  background: rgba(13,13,13,0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #555;
+  z-index: 10;
+}
+
+/* ── Google Trends panel ──────────────────────────────────────────────────── */
+.trends-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 18px 24px;
+  overflow: hidden;
+  gap: 10px;
+}
+
+.trends-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.trends-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: #A8C8E8;
+  text-transform: uppercase;
+}
+
+.trends-window {
+  font-size: 10px;
+  color: #444;
+}
+
+#trends-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.trend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.trend-rank {
+  font-size: 10px;
+  color: #444;
+  width: 14px;
+  text-align: right;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.trend-term {
+  font-size: 12px;
+  color: #BBB;
+  width: 130px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trend-bar-wrap {
+  flex: 1;
+  height: 3px;
+  background: #1A1A1A;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.trend-bar {
+  height: 100%;
+  background: #A8C8E8;
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Color-code high-scoring terms */
+.trend-bar.high   { background: #A8C8E8; }
+.trend-bar.medium { background: #7AA8C8; }
+.trend-bar.low    { background: #3A5A7A; }
+
+.trend-score {
+  font-size: 11px;
+  color: #555;
+  width: 26px;
+  text-align: right;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.trends-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #1A1A1A;
+  flex-shrink: 0;
+}
+
+.macro-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #444;
+}
+
+.macro-vote {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.macro-vote.bullish { color: #00C853; }
+.macro-vote.bearish { color: #FF4444; }
+.macro-vote.neutral { color: #666; }
+
+/* ── Skeleton loaders ─────────────────────────────────────────────────────── */
+.trend-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skeleton-row {
+  height: 12px;
+  background: linear-gradient(90deg, #161616 25%, #1E1E1E 50%, #161616 75%);
+  background-size: 200% 100%;
+  border-radius: 2px;
+  width: var(--w, 60%);
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Spinner ──────────────────────────────────────────────────────────────── */
+.spinner-ring {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #2A2A2A;
+  border-top-color: #A8C8E8;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.spinner-ring.large {
+  width: 28px;
+  height: 28px;
+  border-width: 2.5px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Utility ──────────────────────────────────────────────────────────────── */
+.hidden { display: none !important; }
+
+/* ── Scrollbar styling ────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2A2A2A; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #3A3A3A; }
+
+/* ── Responsive (tablet / narrow) ────────────────────────────────────────── */
+@media (max-width: 900px) {
+  html, body { overflow: auto; }
+
+  .content-grid {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .stock-panel { border-right: none; border-bottom: 1px solid #181818; }
+
+  .header-right .refresh-note { display: none; }
+  .logo-sub { display: none; }
+}
