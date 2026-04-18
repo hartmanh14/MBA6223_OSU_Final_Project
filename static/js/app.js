@@ -610,7 +610,160 @@ window.triggerRefresh = async function triggerRefresh() {
   }, 8000);
 };
 
+// ── Dashboard Backtest ────────────────────────────────────────────────────────
+async function runDashboardBacktest() {
+  const tickerEl  = document.getElementById('bt-dash-ticker');
+  const statusEl  = document.getElementById('bt-dash-status');
+  const tilesEl   = document.getElementById('bt-dash-tiles');
+  const ticker    = (tickerEl.value.trim().toUpperCase()) || 'AAPL';
+
+  statusEl.textContent = `Running backtest for ${ticker}…`;
+  statusEl.style.display = 'block';
+  tilesEl.innerHTML = '';
+  ['1mo', '1y', '5y'].forEach(w => {
+    const el = document.getElementById(`bt-dash-chart-${w}`);
+    if (el) el.innerHTML = '';
+  });
+
+  try {
+    const r = await fetch(`/api/backtest/${encodeURIComponent(ticker)}`);
+    const data = await r.json();
+    statusEl.style.display = 'none';
+
+    if (!r.ok) { statusEl.textContent = 'Backtest error.'; statusEl.style.display = 'block'; return; }
+
+    tilesEl.innerHTML = [
+      ['1mo', '1 Month'], ['1y', '1 Year'], ['5y', '5 Years']
+    ].map(([w, label]) => btDashTileHtml(label, (data[w] || {}).summary || {})).join('');
+
+    plotDashChart('bt-dash-chart-1mo', `${ticker} — 1 Month`,  (data['1mo'] || {}).rows || []);
+    plotDashChart('bt-dash-chart-1y',  `${ticker} — 1 Year`,   (data['1y']  || {}).rows || []);
+    plotDashChart('bt-dash-chart-5y',  `${ticker} — 5 Years`,  (data['5y']  || {}).rows || []);
+  } catch (err) {
+    statusEl.textContent = 'Failed to load backtest.';
+    statusEl.style.display = 'block';
+  }
+}
+
+function btDashTileHtml(label, s) {
+  const p = (v, d = 2) => (v == null || !isFinite(v)) ? '—' : (v * 100).toFixed(d) + '%';
+  const c = v => v > 0 ? 'up' : v < 0 ? 'down' : '';
+  return `
+    <div class="bt-dash-tile">
+      <div class="bt-dash-tile-label">${label}</div>
+      <div class="bt-kv-row"><span>BUY avg return</span><span class="${c(s.buy_avg_fwd_return)}">${p(s.buy_avg_fwd_return)}</span></div>
+      <div class="bt-kv-row"><span>SELL avg return</span><span class="${c(-s.sell_avg_fwd_return)}">${p(s.sell_avg_fwd_return)}</span></div>
+      <div class="bt-kv-row"><span>BUY − SELL spread</span><span class="${c(s.buy_minus_sell)}">${p(s.buy_minus_sell)}</span></div>
+      <div class="bt-kv-row"><span>Accuracy</span><span>${p(s.accuracy, 1)}</span></div>
+      <div class="bt-kv-row"><span>Strategy return</span><span class="${c(s.cumulative_strategy_return)}">${p(s.cumulative_strategy_return)}</span></div>
+      <div class="bt-kv-row"><span>Buy &amp; hold</span><span class="${c(s.cumulative_buy_and_hold)}">${p(s.cumulative_buy_and_hold)}</span></div>
+      <div class="bt-kv-row muted"><span>n BUY / HOLD / SELL</span><span>${s.n_buy ?? '—'} / ${s.n_hold ?? '—'} / ${s.n_sell ?? '—'}</span></div>
+    </div>`;
+}
+
+function plotDashChart(divId, title, rows) {
+  const el = document.getElementById(divId);
+  if (!el) return;
+  if (!rows.length) { el.innerHTML = '<div class="dash-loading">No data</div>'; return; }
+
+  const buys  = rows.filter(r => r.signal === 'BUY');
+  const sells = rows.filter(r => r.signal === 'SELL');
+
+  const PAPER   = '#F4F1EB';
+  const PAPER2  = '#ECE7DD';
+  const INK2    = '#3B414D';
+  const INK3    = '#737A8A';
+  const GRID    = '#D8D3C8';
+  const BUY_C   = '#3a9e5c';
+  const SELL_C  = '#c94b3a';
+
+  Plotly.newPlot(divId, [
+    { type: 'scatter', mode: 'lines', name: 'Price',
+      x: rows.map(r => r.date), y: rows.map(r => r.price),
+      yaxis: 'y1', line: { color: INK2, width: 1.5 } },
+    { type: 'scatter', mode: 'lines', name: 'Score',
+      x: rows.map(r => r.date), y: rows.map(r => r.score),
+      yaxis: 'y2', line: { color: INK3, dash: 'dot', width: 1 } },
+    { type: 'scatter', mode: 'markers', name: 'BUY',
+      x: buys.map(r => r.date),  y: buys.map(r => r.price),
+      marker: { color: BUY_C, size: 8, symbol: 'triangle-up' }, yaxis: 'y1' },
+    { type: 'scatter', mode: 'markers', name: 'SELL',
+      x: sells.map(r => r.date), y: sells.map(r => r.price),
+      marker: { color: SELL_C, size: 8, symbol: 'triangle-down' }, yaxis: 'y1' },
+  ], {
+    title: { text: title, font: { size: 12, color: INK2, family: 'Inter, sans-serif' } },
+    paper_bgcolor: PAPER,
+    plot_bgcolor:  PAPER2,
+    font: { color: INK2, family: 'Inter, sans-serif', size: 11 },
+    margin: { l: 52, r: 52, t: 36, b: 36 },
+    xaxis:  { gridcolor: GRID, linecolor: GRID },
+    yaxis:  { title: 'Price',  side: 'left',  gridcolor: GRID },
+    yaxis2: { title: 'Score', side: 'right', overlaying: 'y', range: [-4, 4], gridcolor: 'transparent', zeroline: false },
+    legend: { orientation: 'h', y: -0.18, font: { size: 11 } },
+  }, { displayModeBar: false, responsive: true });
+}
+
+// ── Alpha Ranking ─────────────────────────────────────────────────────────────
+async function loadAlphaRanking() {
+  const loadEl    = document.getElementById('alpha-loading');
+  const contentEl = document.getElementById('alpha-content');
+  const metaEl    = document.getElementById('alpha-meta');
+  try {
+    const r    = await fetch('/api/alpha');
+    const data = await r.json();
+
+    if (!r.ok) {
+      loadEl.textContent = data.hint || 'Alpha data not available yet — trigger a refresh.';
+      return;
+    }
+
+    loadEl.style.display = 'none';
+    contentEl.style.display = 'grid';
+
+    if (data.generated_at && metaEl) {
+      const d = new Date(data.generated_at);
+      metaEl.textContent = `vs ${data.benchmark || '^GSPC'} · ${d.toLocaleString()}`;
+    }
+
+    const top    = data.top    || [];
+    const bot    = data.bottom || [];
+    const maxAbs = Math.max(...[...top, ...bot].map(r => Math.abs(r.alpha_12m)), 0.001);
+
+    buildAlphaRows(top, document.getElementById('alpha-top-body'), maxAbs);
+    buildAlphaRows(bot, document.getElementById('alpha-bot-body'), maxAbs);
+  } catch (e) {
+    if (loadEl) loadEl.textContent = 'Failed to load alpha rankings.';
+  }
+}
+
+function buildAlphaRows(rows, tbody, maxAbs) {
+  if (!tbody) return;
+  const p = v => v == null ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+  const c = v => v >= 0 ? 'up' : 'down';
+  tbody.innerHTML = rows.map((r, i) => {
+    const barW = Math.min(100, Math.abs(r.alpha_12m) / maxAbs * 100).toFixed(1);
+    return `
+      <tr>
+        <td class="alpha-rank">${i + 1}</td>
+        <td><span class="alpha-ticker">${r.ticker}</span></td>
+        <td class="right ${c(r.total_return_12m)}">${p(r.total_return_12m)}</td>
+        <td class="right ${c(r.alpha_12m)}">${p(r.alpha_12m)}</td>
+        <td class="alpha-bar-cell">
+          <div class="alpha-bar-wrap"><div class="alpha-bar-fill ${c(r.alpha_12m)}" style="width:${barW}%"></div></div>
+        </td>
+        <td><a class="alpha-drill" href="/drilldown/${r.ticker}" target="_blank">Deep dive →</a></td>
+      </tr>`;
+  }).join('');
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async function init() {
   await Promise.all([loadUniverse(), loadTrends()]);
+  loadAlphaRanking();
+  // Wire backtest controls
+  const runBtn  = document.getElementById('bt-dash-run');
+  const tickerInput = document.getElementById('bt-dash-ticker');
+  if (runBtn)    runBtn.addEventListener('click', runDashboardBacktest);
+  if (tickerInput) tickerInput.addEventListener('keydown', e => { if (e.key === 'Enter') runDashboardBacktest(); });
+  runDashboardBacktest();
 })();

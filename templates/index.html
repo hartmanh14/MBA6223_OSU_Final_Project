@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 </head>
 <body>
 
@@ -186,6 +187,64 @@
       <span>Fetching market data…</span>
     </div>
   </main>
+
+  <!-- ── Backtest section ─────────────────────────────────────────────────── -->
+  <div class="dash-lower">
+    <section class="dash-section" id="dash-backtest">
+      <div class="dash-section-header">
+        <div>
+          <div class="panel-eyebrow">Historical Signal Replay · 1mo · 1yr · 5yr</div>
+          <h2 class="dash-section-title">Backtest</h2>
+        </div>
+        <div class="dash-controls">
+          <input id="bt-dash-ticker" class="dash-input" placeholder="AAPL" maxlength="10" />
+          <button id="bt-dash-run" class="dash-btn">Run</button>
+        </div>
+      </div>
+      <div id="bt-dash-status" class="dash-loading" style="display:none"></div>
+      <div id="bt-dash-tiles" class="bt-dash-tiles"></div>
+      <div class="bt-dash-chart-grid">
+        <div id="bt-dash-chart-1mo" class="bt-dash-chart"></div>
+        <div id="bt-dash-chart-1y"  class="bt-dash-chart"></div>
+        <div id="bt-dash-chart-5y"  class="bt-dash-chart"></div>
+      </div>
+      <p class="dash-caption">Next-day forward return after each BUY / SELL signal on daily OHLCV bars. Positive BUY−SELL spread confirms the model sorts directional moves. Strategy return compounds long/short/flat; compare to buy-and-hold.</p>
+    </section>
+
+    <!-- ── Alpha Ranking section ──────────────────────────────────────────── -->
+    <section class="dash-section" id="dash-alpha">
+      <div class="dash-section-header">
+        <div>
+          <div class="panel-eyebrow">12-Month Trailing Alpha vs S&amp;P 500</div>
+          <h2 class="dash-section-title">Alpha Ranking</h2>
+        </div>
+        <div class="dash-meta" id="alpha-meta"></div>
+      </div>
+      <div id="alpha-loading" class="dash-loading">Loading alpha rankings…</div>
+      <div id="alpha-content" class="alpha-grid" style="display:none">
+        <div class="alpha-card">
+          <div class="alpha-card-header">
+            <span>Top Outperformers</span>
+            <span class="alpha-badge alpha-badge-top">ALPHA+</span>
+          </div>
+          <table class="alpha-table">
+            <thead><tr><th>#</th><th>Ticker</th><th class="right">12m Return</th><th class="right">Alpha</th><th class="alpha-bar-cell"></th><th></th></tr></thead>
+            <tbody id="alpha-top-body"></tbody>
+          </table>
+        </div>
+        <div class="alpha-card">
+          <div class="alpha-card-header">
+            <span>Bottom Underperformers</span>
+            <span class="alpha-badge alpha-badge-bot">ALPHA−</span>
+          </div>
+          <table class="alpha-table">
+            <thead><tr><th>#</th><th>Ticker</th><th class="right">12m Return</th><th class="right">Alpha</th><th class="alpha-bar-cell"></th><th></th></tr></thead>
+            <tbody id="alpha-bot-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
 
   <footer class="footer">
     <span>DATA · YFINANCE · MARKET PROXIES · REFRESHED DAILY 9:40 AM ET</span>
