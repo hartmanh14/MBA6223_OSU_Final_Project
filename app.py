@@ -163,6 +163,12 @@ def _daily_refresh():
     logger.info("=== Daily refresh starting ===")
     now_et = datetime.now(ET)
 
+    # Clear per-ticker caches immediately so the next stock request gets fresh
+    # data from yfinance even while the heavier signal/depth steps are still running.
+    _mem["metrics"] = {}
+    _mem["history"] = {}
+    _mem["backtests"] = {}
+
     # Step 1: Trends
     try:
         trends_list = get_macro_trends()
@@ -223,11 +229,6 @@ def _daily_refresh():
         )
     except Exception as exc:
         logger.error("Depth pipeline failed: %s", exc)
-
-    # Step 5: Clear per-ticker caches so fresh fetches happen on next request
-    _mem["metrics"] = {}
-    _mem["history"] = {}
-    _mem["backtests"] = {}
 
     refresh_ts = now_et.isoformat()
     _save(_REFRESH_FILE, {"last_refresh": refresh_ts})
@@ -367,13 +368,25 @@ def api_stock(ticker: str):
     if depth and isinstance(depth.get("scored"), dict):
         composite_block = depth["scored"].get(ticker)
 
+    # Derive hit_rate from cached backtest (1y window) if available
+    hit_rate = None
+    bt_cached = _mem["backtests"].get(ticker, {})
+    if bt_cached.get("data"):
+        hit_rate = bt_cached["data"].get("1y", {}).get("hit_rate")
+
+    # Expose previous_close as prev_close for the frontend price-change display
+    prev_close = cached_metrics.get("previous_close")
+
     return jsonify({
         "ticker": ticker,
         "signal": signal_data.get("signal", "HOLD"),
         "score": signal_data.get("score", 0),
         "votes": signal_data.get("votes", {}),
+        "details": signal_data.get("details", {}),
+        "prev_close": prev_close,
+        "hit_rate": hit_rate,
         **{k: v for k, v in cached_metrics.items() if k != "date"},
-        "composite": composite_block,   # None if ticker not in top/bottom 20
+        "composite": composite_block,
     })
 
 

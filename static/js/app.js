@@ -564,6 +564,55 @@ function renderTrends(trends) {
   }
 }
 
+// ── Refresh ───────────────────────────────────────────────────────────────────
+window.triggerRefresh = async function triggerRefresh() {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = 'Refreshing…';
+
+  let initialTs = null;
+  try {
+    const statusResp = await fetch('/api/status');
+    if (statusResp.ok) {
+      const s = await statusResp.json();
+      initialTs = s.last_refresh;
+    }
+  } catch (_) {}
+
+  try {
+    await fetch('/api/refresh', { method: 'POST' });
+  } catch (e) {
+    btn.textContent = 'Error';
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Refresh'; }, 3000);
+    return;
+  }
+
+  // Poll /api/status until last_refresh changes (refresh complete)
+  const deadline = Date.now() + 15 * 60 * 1000; // 15-min timeout
+  let dots = 0;
+  const poll = setInterval(async () => {
+    dots = (dots + 1) % 4;
+    btn.textContent = 'Running' + '.'.repeat(dots + 1);
+    try {
+      const statusResp = await fetch('/api/status');
+      if (!statusResp.ok) return;
+      const s = await statusResp.json();
+      if (s.last_refresh && s.last_refresh !== initialTs) {
+        clearInterval(poll);
+        btn.textContent = 'Done!';
+        // Reload trends and the currently displayed stock
+        await loadTrends();
+        if (selectedTicker) selectStock(selectedTicker);
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Refresh'; }, 4000);
+      } else if (Date.now() > deadline) {
+        clearInterval(poll);
+        btn.textContent = 'Timed out';
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Refresh'; }, 4000);
+      }
+    } catch (_) {}
+  }, 8000); // poll every 8 seconds
+};
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async function init() {
   await Promise.all([loadUniverse(), loadTrends()]);

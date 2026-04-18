@@ -201,20 +201,6 @@
       navDropdown.classList.toggle('open');
     });
     document.addEventListener('click', () => navDropdown.classList.remove('open'));
-
-    async function triggerRefresh() {
-      const btn = document.getElementById('refresh-btn');
-      btn.disabled = true;
-      btn.textContent = 'Refreshing…';
-      try {
-        await fetch('/api/refresh', { method: 'POST' });
-        btn.textContent = 'Started!';
-        setTimeout(() => { btn.disabled = false; btn.textContent = 'Refresh'; }, 10000);
-      } catch (e) {
-        btn.textContent = 'Error';
-        setTimeout(() => { btn.disabled = false; btn.textContent = 'Refresh'; }, 3000);
-      }
-    }
   </script>
 </body>
 </html>
