@@ -565,12 +565,19 @@ function renderTrends(trends) {
 }
 
 // ── Refresh ───────────────────────────────────────────────────────────────────
-// Clears all server-side caches instantly, then re-fetches trends and the
-// currently displayed stock so the UI shows live data immediately.
+// Triggers the full background refresh (trends + universe + 500-ticker signals
+// + depth pipeline).  Polls /api/status until last_refresh changes, then
+// reloads trends and the currently displayed stock.
 window.triggerRefresh = async function triggerRefresh() {
   const btn = document.getElementById('refresh-btn');
   btn.disabled = true;
-  btn.textContent = 'Clearing…';
+  btn.textContent = 'Refreshing…';
+
+  let initialTs = null;
+  try {
+    const s = await fetch('/api/status').then(r => r.json());
+    initialTs = s.last_refresh;
+  } catch (_) {}
 
   try {
     await fetch('/api/refresh', { method: 'POST' });
@@ -580,13 +587,27 @@ window.triggerRefresh = async function triggerRefresh() {
     return;
   }
 
-  btn.textContent = 'Fetching…';
-  // Reload trends and the currently displayed stock with fresh live data
-  await loadTrends();
-  if (selectedTicker) await selectStock(selectedTicker);
-
-  btn.textContent = 'Done!';
-  setTimeout(() => { btn.disabled = false; btn.textContent = 'Refresh'; }, 3000);
+  // Poll until the batch completes (typically 3–8 min for 500 tickers)
+  const deadline = Date.now() + 15 * 60 * 1000;
+  let dots = 0;
+  const poll = setInterval(async () => {
+    dots = (dots + 1) % 4;
+    btn.textContent = 'Running' + '.'.repeat(dots + 1);
+    try {
+      const s = await fetch('/api/status').then(r => r.json());
+      if (s.last_refresh && s.last_refresh !== initialTs) {
+        clearInterval(poll);
+        btn.textContent = 'Done!';
+        await loadTrends();
+        if (selectedTicker) selectStock(selectedTicker);
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Refresh'; }, 4000);
+      } else if (Date.now() > deadline) {
+        clearInterval(poll);
+        btn.textContent = 'Timed out';
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Refresh'; }, 4000);
+      }
+    } catch (_) {}
+  }, 8000);
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────────

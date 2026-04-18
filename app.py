@@ -6,9 +6,9 @@ Routes
 GET  /                          Single-page dashboard
 GET  /api/universe              S&P 500 ticker list (cached daily)
 GET  /api/trends                Macro proxy scores (cached daily)
-GET  /api/stock/<ticker>        Live signal + metrics (computed on demand, cached per ticker per day)
+GET  /api/stock/<ticker>        Signal + metrics (batch cache; on-demand fallback)
 GET  /api/stock/<ticker>/history  5-day signal-vs-outcome lookback
-GET  /api/refresh               Manual refresh — clears all caches so the next request fetches live data
+GET  /api/refresh               Manual full refresh (background job)
 GET  /api/status                Health / cache status
 
 Finance-depth layer
@@ -23,24 +23,26 @@ GET  /alpha                     Alpha ranking page
 
 Signal computation
 ------------------
-Signals are computed ON DEMAND when a stock is selected — no scheduled batch.
-The first request for a ticker each day fetches live 1-minute intraday bars
-and computes the BUY/HOLD/SELL signal in real time (~2–4 s).  The result is
-cached in memory for the rest of the day.  Clicking Refresh clears the cache
-so the next lookup re-fetches live data.
+APScheduler fires _daily_refresh() at 9:40 AM ET on weekdays, which batch-
+downloads 1-min intraday bars for all S&P 500 tickers and pre-computes signals.
+If a ticker is requested before the batch runs (or after Refresh), its signal
+is computed on-demand via compute_signal_single() as a fallback.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import threading
 from datetime import date, datetime
 from typing import Any
 
 import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from flask import Flask, jsonify, render_template, request
 
-from src.fetcher import compute_signal_single, get_stock_info, get_weekly_history
+from src.fetcher import compute_signal_single, get_stock_info, get_weekly_history, refresh_signals
 from src.trends import compute_macro_vote, get_macro_trends
 from src.universe import get_sp500
 
@@ -66,6 +68,7 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 _UNIVERSE_FILE = os.path.join(DATA_DIR, "universe.json")
+_SIGNALS_FILE  = os.path.join(DATA_DIR, "signals_cache.json")
 _TRENDS_FILE   = os.path.join(DATA_DIR, "trends_cache.json")
 _REFRESH_FILE  = os.path.join(DATA_DIR, "last_refresh.json")
 _DEPTH_FILE    = os.path.join(DATA_DIR, "depth_cache.json")
@@ -149,22 +152,106 @@ def _get_depth() -> dict | None:
     return cached or None
 
 
-# ── Cache helpers ──────────────────────────────────────────────────────────────
+# ── Daily refresh ──────────────────────────────────────────────────────────────
 
-def _clear_all_caches():
-    """Wipe all per-ticker in-memory caches so the next request fetches live data."""
-    _mem["signals"]  = {}
-    _mem["metrics"]  = {}
-    _mem["history"]  = {}
+def _daily_refresh():
+    """
+    Full refresh: trends → universe → batch signals → depth pipeline.
+    Fires automatically at 9:40 AM ET and on manual Refresh.
+    Caches are cleared at the start so stock requests get fresh data immediately.
+    """
+    logger.info("=== Daily refresh starting ===")
+    now_et = datetime.now(ET)
+    today_str = now_et.strftime("%Y-%m-%d")
+
+    # Clear per-ticker caches immediately so requests during the refresh get fresh data.
+    _mem["signals"]   = {}
+    _mem["metrics"]   = {}
+    _mem["history"]   = {}
     _mem["backtests"] = {}
-    _mem["trends"]   = None
+
+    # Step 1: Trends
+    try:
+        trends_list = get_macro_trends()
+        macro_vote  = compute_macro_vote(trends_list)
+        trends_payload = {"data": trends_list, "fetched_at": now_et.isoformat()}
+        _save(_TRENDS_FILE, trends_payload)
+        _mem["trends"] = trends_payload
+        logger.info("Trends refreshed. Macro vote: %+d", macro_vote)
+    except Exception as exc:
+        logger.warning("Trends refresh failed: %s — using vote=0", exc)
+        macro_vote = 0
+
+    # Step 2: Universe
+    try:
+        df = get_sp500()
+        universe_data = df.to_dict("records")
+        _save(_UNIVERSE_FILE, universe_data)
+        _mem["universe"] = universe_data
+        logger.info("Universe refreshed: %d tickers", len(universe_data))
+    except Exception as exc:
+        logger.warning("Universe refresh failed: %s — using cached list", exc)
+        universe_data = _mem["universe"] or _load(_UNIVERSE_FILE, [])
+
+    # Step 3: Batch signals for all tickers
+    tickers = [s["ticker"] for s in universe_data]
+    try:
+        signals = refresh_signals(tickers, macro_vote=macro_vote)
+        # Tag each entry with today's date for cache-freshness checks
+        for entry in signals.values():
+            entry["_date"] = today_str
+        _save(_SIGNALS_FILE, {"data": signals, "fetched_at": now_et.isoformat()})
+        _mem["signals"] = signals
+        logger.info("Signals refreshed for %d tickers.", len(signals))
+    except Exception as exc:
+        logger.error("Signal refresh failed: %s", exc)
+
+    # Step 4: Finance-depth pipeline
+    try:
+        trend = compute_trend_sentiment()
+        ticker_sector_map = {r["ticker"]: r.get("sector") for r in universe_data if r.get("ticker")}
+        depth_result = depth_signals.run_full_pipeline(
+            tickers, benchmark="^GSPC", top_n=10, bottom_n=10,
+            trend=trend, ticker_sector_map=ticker_sector_map,
+        ).to_dict()
+        _save(_DEPTH_FILE, depth_result)
+        _mem["depth"] = depth_result
+        logger.info(
+            "Depth pipeline: %d top, %d bottom; trend shift=%+.0f",
+            len(depth_result.get("alpha_top", [])),
+            len(depth_result.get("alpha_bottom", [])),
+            depth_result.get("trend", {}).get("threshold_shift", 0.0),
+        )
+    except Exception as exc:
+        logger.error("Depth pipeline failed: %s", exc)
+
+    refresh_ts = now_et.isoformat()
+    _save(_REFRESH_FILE, {"last_refresh": refresh_ts})
+    _mem["last_refresh"] = refresh_ts
+    logger.info("=== Daily refresh complete at %s ===", refresh_ts)
 
 
-# ── Startup — warm universe + depth from file ──────────────────────────────────
+def _should_auto_refresh() -> bool:
+    """True if today's batch hasn't run yet and the market has been open ≥10 min."""
+    cached = _load(_REFRESH_FILE, {})
+    last = cached.get("last_refresh") or _mem.get("last_refresh")
+    if not last:
+        return True
+    last_dt = datetime.fromisoformat(last).astimezone(ET)
+    now_et  = datetime.now(ET)
+    market_ready = now_et.hour * 60 + now_et.minute >= 9 * 60 + 40
+    return now_et.weekday() < 5 and market_ready and last_dt.date() < now_et.date()
+
+
+# ── Startup ────────────────────────────────────────────────────────────────────
 def _warm_cache():
     universe = _load(_UNIVERSE_FILE, [])
     if universe:
         _mem["universe"] = universe
+
+    signals_payload = _load(_SIGNALS_FILE, {})
+    if signals_payload.get("data"):
+        _mem["signals"] = signals_payload["data"]
 
     trends_payload = _load(_TRENDS_FILE, {})
     today = date.today().isoformat()
@@ -180,14 +267,27 @@ def _warm_cache():
         _mem["last_refresh"] = refresh_info["last_refresh"]
 
     logger.info(
-        "Cache warmed — universe: %d, trends: %s, depth: %s",
+        "Cache warmed — universe: %d, signals: %d, trends: %s, depth: %s",
         len(_mem["universe"] or []),
+        len(_mem["signals"]),
         "yes" if _mem["trends"] else "no",
         "yes" if _mem["depth"] else "no",
     )
 
 
 _warm_cache()
+
+# ── APScheduler — 9:40 AM ET, Monday–Friday ───────────────────────────────────
+_scheduler = BackgroundScheduler(timezone=ET)
+_scheduler.add_job(
+    _daily_refresh,
+    CronTrigger(hour=9, minute=40, day_of_week="mon-fri", timezone=ET),
+    id="daily_refresh",
+    name="Morning signal refresh",
+    misfire_grace_time=300,
+)
+_scheduler.start()
+logger.info("APScheduler started — next refresh at 09:40 AM ET on weekdays.")
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -207,6 +307,9 @@ def index():
 @app.route("/api/universe")
 def api_universe():
     """Return the S&P 500 ticker list as JSON."""
+    if _should_auto_refresh():
+        logger.info("Auto-refresh triggered via /api/universe.")
+        threading.Thread(target=_daily_refresh, daemon=True).start()
     return jsonify(_get_universe())
 
 
@@ -230,16 +333,15 @@ def api_stock(ticker: str):
     ticker = ticker.upper()
     today_str = date.today().isoformat()
 
-    # ── Signal ────────────────────────────────────────────────────────────────
+    # ── Signal — batch cache first, on-demand fallback ───────────────────────
     sig_cached = _mem["signals"].get(ticker, {})
     if sig_cached.get("_date") != today_str:
-        # Derive current macro vote from cached trends (fast, already fetched)
+        # Batch hasn't run yet today (or Refresh was clicked) — compute live.
         macro_vote = 0
         trends = _mem.get("trends") or {}
         if trends.get("data"):
             macro_vote = compute_macro_vote(trends["data"])
-
-        logger.info("Computing live signal for %s (macro_vote=%+d)", ticker, macro_vote)
+        logger.info("On-demand signal for %s (macro_vote=%+d)", ticker, macro_vote)
         result = compute_signal_single(ticker, macro_vote=macro_vote)
         result["_date"] = today_str
         _mem["signals"][ticker] = result
@@ -308,18 +410,9 @@ def api_stock_history(ticker: str):
 
 @app.route("/api/refresh", methods=["POST", "GET"])
 def api_refresh():
-    """
-    Clear all per-ticker caches so the next stock request fetches live data.
-    Completes instantly — no background job.  The signal for the displayed
-    stock is recomputed the moment the frontend re-fetches it.
-    """
-    _clear_all_caches()
-    now_et = datetime.now(ET)
-    refresh_ts = now_et.isoformat()
-    _save(_REFRESH_FILE, {"last_refresh": refresh_ts})
-    _mem["last_refresh"] = refresh_ts
-    logger.info("Manual cache clear at %s", refresh_ts)
-    return jsonify({"status": "cache_cleared", "cleared_at": refresh_ts})
+    """Trigger a full refresh in the background — returns immediately."""
+    threading.Thread(target=_daily_refresh, daemon=True).start()
+    return jsonify({"status": "refresh_started", "triggered_at": datetime.now(ET).isoformat()})
 
 
 @app.route("/api/status")
