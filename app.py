@@ -403,18 +403,9 @@ def api_stock_history(ticker: str):
     return jsonify({"ticker": ticker, "history": history})
 
 
-@app.route("/api/refresh", methods=["POST"])
+@app.route("/api/refresh", methods=["POST", "GET"])
 def api_refresh():
-    """
-    Trigger a manual full refresh.
-    Protect with the REFRESH_SECRET environment variable.
-    Set X-Refresh-Secret: <value> in the request header.
-    If REFRESH_SECRET is not set, the endpoint is unprotected (dev mode).
-    """
-    secret = os.environ.get("REFRESH_SECRET", "")
-    if secret and request.headers.get("X-Refresh-Secret") != secret:
-        abort(403)
-
+    """Trigger a manual full refresh — open to anyone."""
     threading.Thread(target=_daily_refresh, daemon=True).start()
     return jsonify({"status": "refresh_started", "triggered_at": datetime.now(ET).isoformat()})
 
