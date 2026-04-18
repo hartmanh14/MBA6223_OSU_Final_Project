@@ -6,14 +6,13 @@
   <title>LSP — Longshot Stock Prediction</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
 
-  <!-- ── Header ──────────────────────────────────────────────────────────── -->
-  <header class="header">
-    <div class="header-left">
+  <header class="topbar">
+    <div class="topbar-left">
       <span class="logo">LSP</span>
       <span class="logo-sub">Longshot Stock Prediction</span>
       <div class="nav-dropdown" id="nav-dropdown">
@@ -41,197 +40,157 @@
         </div>
       </div>
     </div>
-    <div class="header-right">
-      <span class="refresh-label">Data as of:</span>
-      <span class="refresh-time" id="refresh-time">{{ last_refresh }}</span>
-      <span class="refresh-note">— refreshed daily at 9:40 AM ET</span>
-      <button id="refresh-btn" onclick="triggerRefresh()" style="margin-left:16px;padding:5px 12px;background:#1f2d45;color:#58a6ff;border:1px solid #30363d;border-radius:6px;cursor:pointer;font-size:13px;">Refresh Data</button>
+    <div class="topbar-search" id="search-wrapper">
+      <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" id="stock-input" class="stock-input" placeholder="Search S&amp;P 500 companies…" autocomplete="off" spellcheck="false" />
+      <div class="input-spinner hidden" id="input-spinner"><div class="spinner-ring"></div></div>
+      <div class="dropdown" id="dropdown"></div>
+    </div>
+    <div class="topbar-right">
+      <span class="refresh-stamp">COMPUTED · <span id="refresh-time">{{ last_refresh }}</span> ET</span>
+      <button id="refresh-btn" class="refresh-btn" onclick="triggerRefresh()">Refresh</button>
     </div>
   </header>
 
-  <!-- ── Stock Selector ──────────────────────────────────────────────────── -->
-  <div class="selector-bar">
-    <div class="search-wrapper" id="search-wrapper">
-      <div class="search-icon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-      </div>
-      <input
-        type="text"
-        id="stock-input"
-        class="stock-input"
-        placeholder="Search S&amp;P 500 stocks by ticker or name…"
-        autocomplete="off"
-        spellcheck="false"
-      />
-      <div class="input-spinner hidden" id="input-spinner">
-        <div class="spinner-ring"></div>
-      </div>
-      <div class="dropdown" id="dropdown"></div>
+  <main class="page">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-mark"></div>
+      <div class="empty-eyebrow">Begin</div>
+      <h1 class="empty-title">Select a <em>stock</em>.</h1>
+      <p class="empty-sub">Search any S&amp;P 500 company above to see today's signal, the reasoning behind it, and how the model has performed.</p>
     </div>
-  </div>
 
-  <!-- ── Main Content Grid ───────────────────────────────────────────────── -->
-  <main class="content-grid">
-
-    <!-- Left: Stock Panel -->
-    <section class="stock-panel" id="stock-panel">
-
-      <!-- Empty state -->
-      <div class="empty-state" id="empty-state">
-        <div class="empty-icon">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2E3D5A" stroke-width="1.5">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-          </svg>
+    <div class="stock-data hidden" id="stock-data">
+      <section class="hero">
+        <div class="hero-identity">
+          <div class="company-name" id="company-name">—</div>
+          <div class="ticker-row" id="ticker-row">—</div>
         </div>
-        <p class="empty-title">Select a stock to begin</p>
-        <p class="empty-sub">Search for any S&amp;P 500 company above</p>
-      </div>
-
-      <!-- Stock data (hidden until selection) -->
-      <div class="stock-data hidden" id="stock-data">
-
-        <!-- Stock header row -->
-        <div class="stock-header">
-          <div class="stock-identity">
-            <span class="company-name" id="company-name">—</span>
-            <span class="ticker-badge" id="ticker-badge">—</span>
-            <span class="sector-tag" id="sector-tag"></span>
+        <div class="hero-price">
+          <div class="price" id="current-price">—</div>
+          <div class="price-change" id="price-change"></div>
+        </div>
+        <div class="verdict-row">
+          <div class="verdict-badge" id="verdict-badge">
+            <div class="l">VERDICT</div>
+            <div class="v" id="verdict-text">—</div>
+            <div class="s" id="verdict-score">—</div>
           </div>
-          <div class="price-signal-group">
-            <div class="current-price" id="current-price">—</div>
-            <div class="signal-badge" id="signal-badge">—</div>
+          <div class="why-card">
+            <div class="l">Why this signal</div>
+            <p id="why-text">—</p>
           </div>
         </div>
-
-        <!-- Score bar -->
-        <div class="score-bar-row" id="score-bar-row">
-          <span class="score-label">Signal Score</span>
-          <div class="score-track">
-            <div class="score-fill" id="score-fill"></div>
-          </div>
-          <span class="score-value" id="score-value">0 / 5</span>
-        </div>
-
-        <!-- Signal explanation -->
-        <p class="signal-explanation" id="signal-explanation"></p>
-
-        <!-- Divider -->
-        <div class="divider"></div>
-
-        <!-- 10 Financial Metrics grid -->
-        <div class="section-label">KEY METRICS — CURRENT VALUES</div>
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <div class="metric-label">P/E Ratio</div>
-            <div class="metric-value" id="m-pe">—</div>
-            <div class="metric-context">Trailing 12-month earnings multiple</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">EPS (TTM)</div>
-            <div class="metric-value" id="m-eps">—</div>
-            <div class="metric-context">Earnings per share, trailing 12 months</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">Market Cap</div>
-            <div class="metric-value" id="m-mktcap">—</div>
-            <div class="metric-context">Total market capitalisation</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">Revenue (TTM)</div>
-            <div class="metric-value" id="m-revenue">—</div>
-            <div class="metric-context">Total sales, trailing 12 months</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">Gross Margin</div>
-            <div class="metric-value" id="m-grossmargin">—</div>
-            <div class="metric-context">Revenue minus cost of goods sold</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">Debt / Equity</div>
-            <div class="metric-value" id="m-de">—</div>
-            <div class="metric-context">Total debt relative to equity; &gt;2× is high</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">ROE</div>
-            <div class="metric-value" id="m-roe">—</div>
-            <div class="metric-context">Return on equity; &gt;15% is strong</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">P/B Ratio</div>
-            <div class="metric-value" id="m-pb">—</div>
-            <div class="metric-context">Price relative to book value per share</div>
-          </div>
-          <div class="metric-card metric-wide">
-            <div class="metric-label">52-Week Range <span class="metric-range-current" id="m-52w-label"></span></div>
-            <div class="metric-value" id="m-52w">—</div>
-            <div class="metric-range-bar"><div class="range-fill" id="m-52w-fill" style="width:0%"></div></div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-label">Dividend Yield</div>
-            <div class="metric-value" id="m-divyield">—</div>
-            <div class="metric-context">Annual dividend as % of share price</div>
-          </div>
-        </div>
-
-        <!-- Signal detail row -->
         <div class="votes-row" id="votes-row"></div>
-
-        <!-- Depth links -->
-        <div id="depth-links" style="margin-top:10px;"></div>
-
-        <!-- Divider -->
-        <div class="divider"></div>
-
-        <!-- 1-Week Lookback -->
-        <div class="section-label">1-WEEK LOOKBACK — SIGNAL VS OUTCOME</div>
-        <div class="history-list" id="history-list">
-          <div class="history-loading">
-            <div class="spinner-ring"></div>
+        <div class="track-record">
+          <div class="tr-cell">
+            <div class="tr-l">5-day if followed</div>
+            <div class="tr-v" id="tr-5day">—</div>
+            <div class="tr-c" id="tr-5day-sub">—</div>
+          </div>
+          <div class="tr-cell">
+            <div class="tr-l">Model hit rate</div>
+            <div class="tr-v" id="tr-hit">—</div>
+            <div class="tr-c" id="tr-hit-sub">Across scored days</div>
+          </div>
+          <div class="tr-cell">
+            <div class="tr-l">Macro sentiment</div>
+            <div class="tr-v" id="tr-macro">—</div>
+            <div class="tr-c" id="tr-macro-sub">
+              <span id="tr-macro-terms">—</span>
+              <button class="tr-expand" id="trends-toggle" type="button">show 10 terms →</button>
+            </div>
           </div>
         </div>
+      </section>
 
-      </div>
-
-      <!-- Loading overlay -->
-      <div class="stock-loading hidden" id="stock-loading">
-        <div class="spinner-ring large"></div>
-        <span>Fetching market data…</span>
-      </div>
-
-    </section>
-
-    <!-- Right: Google Trends Panel -->
-    <section class="trends-panel">
-      <div class="trends-header">
-        <span class="trends-title">MARKET INDICATORS</span>
-        <span class="trends-window">Market-based macro proxies</span>
-      </div>
-
-      <div id="trends-list">
-        <!-- Skeleton placeholders while loading -->
-        <div class="trend-skeleton" id="trends-skeleton">
-          <div class="skeleton-row" style="--w:72%"></div>
-          <div class="skeleton-row" style="--w:65%"></div>
-          <div class="skeleton-row" style="--w:58%"></div>
-          <div class="skeleton-row" style="--w:53%"></div>
-          <div class="skeleton-row" style="--w:47%"></div>
-          <div class="skeleton-row" style="--w:42%"></div>
-          <div class="skeleton-row" style="--w:38%"></div>
-          <div class="skeleton-row" style="--w:33%"></div>
-          <div class="skeleton-row" style="--w:28%"></div>
-          <div class="skeleton-row" style="--w:22%"></div>
+      <section class="trends-drawer hidden" id="trends-drawer">
+        <div class="drawer-header">
+          <span class="drawer-title">MARKET INDICATORS · Macro proxies</span>
+          <button class="drawer-close" id="trends-close" type="button">hide ×</button>
         </div>
-      </div>
+        <div id="trends-list" class="trends-list"></div>
+      </section>
 
-      <div class="trends-footer">
-        <span class="macro-label">Macro sentiment:</span>
-        <span class="macro-vote" id="macro-vote">—</span>
-      </div>
-    </section>
+      <nav class="tabs" id="tabs" role="tablist">
+        <button class="tab active" data-tab="signal" role="tab">Signal</button>
+        <button class="tab" data-tab="fundamentals" role="tab">Fundamentals</button>
+        <button class="tab" data-tab="backtest" role="tab">Backtest</button>
+        <button class="tab" data-tab="history" role="tab">History</button>
+      </nav>
 
+      <section class="panel" data-panel="signal">
+        <div class="panel-split">
+          <div class="narrative">
+            <div class="panel-eyebrow">Narrative</div>
+            <p class="narrative-text" id="narrative-text">—</p>
+          </div>
+          <div class="range-card">
+            <div class="panel-eyebrow">52-week range</div>
+            <div class="range-headline" id="range-headline">—</div>
+            <div class="range-bar"><div class="range-fill" id="range-fill"></div></div>
+            <div class="range-scale"><span id="range-lo">—</span><span id="range-hi">—</span></div>
+            <div class="range-caption" id="range-caption">—</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel hidden" data-panel="fundamentals">
+        <div class="metrics-grid">
+          <div class="metric"><div class="m-l">P/E</div><div class="m-v" id="m-pe">—</div><div class="m-c">Trailing 12m earnings multiple</div></div>
+          <div class="metric"><div class="m-l">EPS (TTM)</div><div class="m-v" id="m-eps">—</div><div class="m-c">Per share, trailing 12 months</div></div>
+          <div class="metric"><div class="m-l">Market cap</div><div class="m-v" id="m-mktcap">—</div><div class="m-c">Total market capitalisation</div></div>
+          <div class="metric"><div class="m-l">Revenue (TTM)</div><div class="m-v" id="m-revenue">—</div><div class="m-c">Total sales, trailing 12 months</div></div>
+          <div class="metric"><div class="m-l">Gross margin</div><div class="m-v" id="m-grossmargin">—</div><div class="m-c">Revenue − cost of goods sold</div></div>
+          <div class="metric"><div class="m-l">D/E</div><div class="m-v" id="m-de">—</div><div class="m-c">Debt to equity; &gt;2× is high</div></div>
+          <div class="metric"><div class="m-l">ROE</div><div class="m-v" id="m-roe">—</div><div class="m-c">Return on equity; &gt;15% is strong</div></div>
+          <div class="metric"><div class="m-l">P/B</div><div class="m-v" id="m-pb">—</div><div class="m-c">Price to book per share</div></div>
+          <div class="metric"><div class="m-l">Dividend yield</div><div class="m-v" id="m-divyield">—</div><div class="m-c">Annual dividend ÷ share price</div></div>
+        </div>
+      </section>
+
+      <section class="panel hidden" data-panel="backtest">
+        <div class="panel-split">
+          <div class="bt-summary">
+            <div class="panel-eyebrow">1-year backtest</div>
+            <div class="bt-stats" id="bt-stats">
+              <div class="bt-stat"><div class="bt-l">Hit rate</div><div class="bt-v" id="bt-hit">—</div></div>
+              <div class="bt-stat"><div class="bt-l">BUY − SELL spread</div><div class="bt-v" id="bt-spread">—</div></div>
+              <div class="bt-stat"><div class="bt-l">Avg BUY return</div><div class="bt-v" id="bt-buy-avg">—</div></div>
+              <div class="bt-stat"><div class="bt-l">Avg SELL return</div><div class="bt-v" id="bt-sell-avg">—</div></div>
+            </div>
+            <p class="bt-caption">Next-period returns after each BUY / SELL signal over the trailing year. Positive spread means the model sorts winners from losers on average.</p>
+            <a class="bt-link" id="bt-link" href="/backtest">Open full backtest →</a>
+          </div>
+          <div class="bt-chart">
+            <div class="panel-eyebrow">Signal vs. outcome · 1y</div>
+            <div class="bt-chart-placeholder" id="bt-chart-area">
+              <div class="bt-chart-loading"><div class="spinner-ring"></div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel hidden" data-panel="history">
+        <div class="panel-eyebrow">1-week lookback — signal vs. outcome</div>
+        <div class="history-list" id="history-list">
+          <div class="history-loading"><div class="spinner-ring"></div></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="stock-loading hidden" id="stock-loading">
+      <div class="spinner-ring large"></div>
+      <span>Fetching market data…</span>
+    </div>
   </main>
+
+  <footer class="footer">
+    <span>DATA · YFINANCE · MARKET PROXIES · REFRESHED DAILY 9:40 AM ET</span>
+    <span class="footer-accent">EDUCATIONAL — NOT INVESTMENT ADVICE</span>
+  </footer>
 
   <script src="/static/js/app.js"></script>
   <script>
@@ -244,17 +203,16 @@
     document.addEventListener('click', () => navDropdown.classList.remove('open'));
 
     async function triggerRefresh() {
-      const btn = document.getElementById("refresh-btn");
+      const btn = document.getElementById('refresh-btn');
       btn.disabled = true;
-      btn.innerText = "Refreshing…";
+      btn.textContent = 'Refreshing…';
       try {
-        const r = await fetch("/api/refresh", { method: "POST" });
-        const data = await r.json();
-        btn.innerText = "Started! (takes ~2 min)";
-        setTimeout(() => { btn.disabled = false; btn.innerText = "Refresh Data"; }, 10000);
+        await fetch('/api/refresh', { method: 'POST' });
+        btn.textContent = 'Started!';
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Refresh'; }, 10000);
       } catch (e) {
-        btn.innerText = "Error — try again";
-        setTimeout(() => { btn.disabled = false; btn.innerText = "Refresh Data"; }, 3000);
+        btn.textContent = 'Error';
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Refresh'; }, 3000);
       }
     }
   </script>
