@@ -8,13 +8,17 @@ refresh_signals(tickers, macro_vote) → dict {ticker: {signal, score, votes, de
 get_weekly_history(ticker, macro_vote) → list of past-5-day signal-vs-outcome dicts
 
 Signal logic (5 indicators, each ±1 or 0):
-  1. Gap         — opening gap vs previous close  (threshold: ±0.25 %)
-  2. Momentum    — first-10-min price return       (threshold: ±0.3 %)
-  3. VWAP        — last price vs cumulative VWAP   (threshold: ±0.2 %)
-  4. Volume      — first-10-min vol vs expected    (threshold: 1.2×/0.5×)
-  5. Macro trend — derived from Google Trends      (passed in as macro_vote)
+  1. Gap         — opening gap vs previous close    (threshold: ±0.1 %)
+  2. Momentum    — first-10-min price return         (threshold: ±0.1 %)
+  3. VWAP        — last price vs cumulative VWAP     (threshold: ±0.2 %)
+  4. Volume      — first-10-min vol vs expected      (threshold: 1.0×)
+  5. RSI-14      — daily RSI > 50 = bullish regime   (computed from 3mo bars)
+  6. MA-50       — price above 50-day MA = uptrend   (computed from 3mo bars)
+  7. Sector ETF  — sector ETF moving same direction  (intraday return)
+  8. Macro trend — derived from Google Trends        (passed in as macro_vote)
 
 Score ≥ +1 → BUY  |  Score ≤ −1 → SELL  |  else → HOLD
+VIX gate: BUY suppressed → HOLD when VIX ≥ 25 (high-fear override)
 Strategy: BUY = long, SELL/HOLD = flat (no short positions)
 """
 from __future__ import annotations
@@ -37,16 +41,75 @@ ET = pytz.timezone("America/New_York")
 MARKET_OPEN = dtime(9, 30)
 
 # Signal thresholds
-_BUY_THRESHOLD = 1             # lowered from 2 (long-only optimised)
-_SELL_THRESHOLD = -1
-_GAP_PCT_THRESHOLD = 0.25     # % — lowered from 1.0 (long-only optimised)
-_MOMENTUM_PCT_THRESHOLD = 0.3
-_VWAP_PCT_THRESHOLD = 0.2
-_VOL_HIGH_RATIO = 1.2
-_VOL_LOW_RATIO = 0.5
+_BUY_THRESHOLD          = 1
+_SELL_THRESHOLD         = -1
+_GAP_PCT_THRESHOLD      = 0.1    # lowered — RSI/MA50 now anchor the signal
+_MOMENTUM_PCT_THRESHOLD = 0.1    # lowered — same reason
+_VWAP_PCT_THRESHOLD     = 0.2
+_VOL_HIGH_RATIO         = 1.0    # any vol ≥ avg confirms momentum direction
+_VOL_LOW_RATIO          = 0.5
+_RSI_WINDOW             = 14
+_MA_WINDOW              = 50
+_VIX_GATE               = 25.0
 
 # Expected fraction of daily volume in the first 10 minutes (open premium)
 _EXPECTED_FIRST10_FRAC = (10 / 390) * 1.5
+
+# ── Sector ETF map ─────────────────────────────────────────────────────────────
+_SECTOR_ETF_MAP: dict[str, str] = {}
+def _build_sector_map() -> None:
+    _m = _SECTOR_ETF_MAP
+    for t in ["AAPL","MSFT","NVDA","AVGO","ORCL","CRM","AMD","INTC","QCOM","TXN",
+              "ACN","IBM","NOW","AMAT","ADI","PANW","KLAC","LRCX","CDNS","SNPS",
+              "MU","MCHP","ROP","FSLR","HPE","KEYS","CTSH","IT","CDW","ANSS"]:
+        _m[t] = "XLK"
+    for t in ["META","GOOGL","GOOG","NFLX","DIS","CMCSA","T","VZ","CHTR","EA",
+              "MTCH","IPG","OMC","PARA","WBD","TTWO","LYV","FOXA","FOX","NWS"]:
+        _m[t] = "XLC"
+    for t in ["AMZN","TSLA","HD","MCD","NKE","SBUX","TJX","LOW","BKNG","ORLY",
+              "AZO","MAR","GM","F","DHI","PHM","ROST","YUM","HLT","EBAY",
+              "ABNB","RCL","CCL","NCLH","GPC","KMX","BBY","APTV","BWA","LVS"]:
+        _m[t] = "XLY"
+    for t in ["WMT","PG","COST","KO","PEP","PM","MO","MDLZ","CL","KMB",
+              "KR","HSY","SYY","EL","GIS","CHD","MKC","HRL","CAG","MNST","STZ"]:
+        _m[t] = "XLP"
+    for t in ["LLY","JNJ","UNH","ABBV","MRK","TMO","ABT","DHR","AMGN","PFE",
+              "CVS","CI","ELV","HUM","ISRG","BSX","ZTS","BDX","SYK","REGN",
+              "VRTX","MDT","IQV","MCK","CAH","DGX","LH","BAX","A","GEHC"]:
+        _m[t] = "XLV"
+    for t in ["BRK-B","JPM","V","MA","BAC","WFC","GS","MS","AXP","SPGI",
+              "BLK","MMC","CB","PGR","TRV","AFL","MET","PRU","ALL","AIG",
+              "ICE","CME","MSCI","FIS","FISV","COF","DFS","ALLY","SYF","CINF"]:
+        _m[t] = "XLF"
+    for t in ["GE","CAT","RTX","UNP","HON","DE","LMT","BA","UPS","ETN",
+              "GD","PH","NSC","ITW","EMR","CTAS","CMI","ROK","PCAR","IR",
+              "FDX","XYL","CARR","OTIS","FAST","J","MAS","SWK","PNR","AME"]:
+        _m[t] = "XLI"
+    for t in ["XOM","CVX","COP","EOG","SLB","MPC","PSX","VLO","HES","HAL",
+              "DVN","OXY","CTRA","KMI","WMB","OKE","TRGP","BKR","MRO","APA"]:
+        _m[t] = "XLE"
+    for t in ["LIN","APD","SHW","ECL","FCX","NEM","VMC","MLM","PPG","ALB",
+              "DD","DOW","CE","IFF","MOS","PKG","IP","CF","RPM","FMC"]:
+        _m[t] = "XLB"
+    for t in ["PLD","AMT","CCI","EQIX","PSA","DLR","O","SPG","WELL","AVB",
+              "EQR","ARE","VTR","BXP","KIM","REG","ESS","MAA","UDR","CPT"]:
+        _m[t] = "XLRE"
+    for t in ["NEE","DUK","SO","D","AEP","EXC","SRE","XEL","ES","WEC",
+              "ED","ETR","PPL","FE","EIX","AWK","DTE","CMS","CNP","ATO"]:
+        _m[t] = "XLU"
+_build_sector_map()
+
+def _sector_etf(ticker: str) -> str:
+    return _SECTOR_ETF_MAP.get(ticker, "SPY")
+
+def _compute_rsi(close: pd.Series, window: int = _RSI_WINDOW) -> pd.Series:
+    delta    = close.diff()
+    gain     = delta.clip(lower=0)
+    loss     = (-delta).clip(lower=0)
+    avg_gain = gain.ewm(com=window - 1, min_periods=window).mean()
+    avg_loss = loss.ewm(com=window - 1, min_periods=window).mean()
+    rs       = avg_gain / avg_loss.replace(0, np.nan)
+    return 100.0 - (100.0 / (1.0 + rs))
 
 # Batch download sizes
 _INTRADAY_BATCH = 100
@@ -251,8 +314,9 @@ def _get_intraday_bars(tickers: list[str]) -> dict[str, pd.DataFrame]:
 
 def _get_daily_info(tickers: list[str]) -> dict[str, dict]:
     """
-    Fetch 30-day daily bars for all tickers.
-    Returns {ticker: {"prev_close": float, "avg_volume": float}}.
+    Fetch 3-month daily bars for all tickers.
+    Returns {ticker: {prev_close, avg_volume, rsi, above_ma50}}.
+    Extended to 3mo (≈63 bars) to support MA50 and RSI computation.
     """
     result: dict[str, dict] = {}
 
@@ -261,7 +325,7 @@ def _get_daily_info(tickers: list[str]) -> dict[str, dict]:
         try:
             raw = _with_retry(
                 lambda b=batch: yf.download(
-                    b, period="30d", interval="1d",
+                    b, period="3mo", interval="1d",
                     group_by="ticker", auto_adjust=True,
                     progress=False, threads=True,
                 ),
@@ -274,11 +338,18 @@ def _get_daily_info(tickers: list[str]) -> dict[str, dict]:
             for ticker in available:
                 try:
                     df = raw[ticker].dropna(how="all")
-                    if len(df) >= 2:
-                        result[ticker] = {
-                            "prev_close": float(df["Close"].iloc[-2]),
-                            "avg_volume": float(df["Volume"].mean()),
-                        }
+                    if len(df) < 2:
+                        continue
+                    close = df["Close"]
+                    rsi_s = _compute_rsi(close)
+                    rsi_v = float(rsi_s.iloc[-1]) if not np.isnan(rsi_s.iloc[-1]) else None
+                    ma50_v = float(close.rolling(_MA_WINDOW).mean().iloc[-1]) if len(close) >= _MA_WINDOW else None
+                    result[ticker] = {
+                        "prev_close":  float(close.iloc[-2]),
+                        "avg_volume":  float(df["Volume"].mean()),
+                        "rsi":         rsi_v,
+                        "above_ma50":  (float(close.iloc[-1]) > ma50_v) if ma50_v is not None else None,
+                    }
                 except Exception:
                     pass
 
@@ -300,6 +371,51 @@ def _vwap(bars: pd.DataFrame) -> float:
     return float((typical * bars["Volume"]).sum() / total_vol)
 
 
+# ── Market context (VIX + sector ETFs) ───────────────────────────────────────
+
+_ALL_SECTOR_ETFS = ["XLK","XLC","XLY","XLP","XLV","XLF","XLI","XLE","XLB","XLRE","XLU","SPY"]
+
+def _fetch_market_context() -> dict:
+    """
+    Fetch today's intraday data for ^VIX and all sector ETFs in a single batch.
+    Returns {"vix": float|None, "etf_returns": {symbol: float|None}}.
+    """
+    ctx: dict = {"vix": None, "etf_returns": {e: None for e in _ALL_SECTOR_ETFS}}
+    symbols = ["^VIX"] + _ALL_SECTOR_ETFS
+    try:
+        raw = _with_retry(
+            lambda: yf.download(
+                symbols, period="2d", interval="1d",
+                group_by="ticker", auto_adjust=True,
+                progress=False, threads=True,
+            ),
+            retries=2, base_delay=1.5,
+        )
+        if raw.empty:
+            return ctx
+
+        # VIX current level
+        try:
+            vix_df = raw["^VIX"]["Close"].dropna()
+            if not vix_df.empty:
+                ctx["vix"] = float(vix_df.iloc[-1])
+        except Exception:
+            pass
+
+        # Sector ETF today-vs-yesterday return
+        for etf in _ALL_SECTOR_ETFS:
+            try:
+                etf_close = raw[etf]["Close"].dropna()
+                if len(etf_close) >= 2:
+                    ctx["etf_returns"][etf] = float(etf_close.iloc[-1] / etf_close.iloc[-2] - 1)
+            except Exception:
+                pass
+
+    except Exception as exc:
+        logger.warning("_fetch_market_context failed: %s", exc)
+    return ctx
+
+
 # ── Signal computation ────────────────────────────────────────────────────────
 
 def _compute_signal(
@@ -307,10 +423,13 @@ def _compute_signal(
     prev_close: Optional[float],
     avg_daily_volume: Optional[float],
     macro_vote: int = 0,
+    rsi: Optional[float] = None,
+    above_ma50: Optional[bool] = None,
+    sector_ret: Optional[float] = None,
+    vix_level: Optional[float] = None,
 ) -> dict:
     """
-    Score a single ticker across 5 indicators and return a BUY/SELL/HOLD signal.
-
+    Score a single ticker across up to 8 indicators and return BUY/SELL/HOLD.
     Returns dict with keys: signal, score, votes, details.
     """
     if bars_10 is None or bars_10.empty:
@@ -353,18 +472,37 @@ def _compute_signal(
         expected = avg_daily_volume * _EXPECTED_FIRST10_FRAC
         vol_ratio = first_10_vol / expected
         details["vol_ratio"] = round(vol_ratio, 2)
-        # High volume confirms momentum direction; thin tape → neutral
         votes["volume"] = votes.get("momentum", 0) if vol_ratio >= _VOL_HIGH_RATIO else 0
     else:
         details["vol_ratio"] = None
         votes["volume"] = 0
 
-    # 5. Macro trends (pre-computed Google Trends sentiment vote) ─────────────
+    # 5. Macro trends ─────────────────────────────────────────────────────────
     votes["macro_trend"] = int(macro_vote)
+
+    # 6. RSI regime: > 50 = bullish momentum, < 50 = bearish ─────────────────
+    if rsi is not None and np.isfinite(rsi):
+        details["rsi"] = round(rsi, 1)
+        votes["rsi"] = 1 if rsi > 50 else -1
+
+    # 7. 50-day MA trend filter ───────────────────────────────────────────────
+    if above_ma50 is not None:
+        details["above_ma50"] = above_ma50
+        votes["ma50"] = 1 if above_ma50 else -1
+
+    # 8. Sector ETF: broad sector moving same direction ───────────────────────
+    if sector_ret is not None and np.isfinite(sector_ret):
+        details["sector_ret"] = round(sector_ret * 100, 2)
+        votes["sector"] = 1 if sector_ret > 0.0 else (-1 if sector_ret < 0.0 else 0)
 
     # Aggregate ───────────────────────────────────────────────────────────────
     score = sum(votes.values())
     signal = BUY if score >= _BUY_THRESHOLD else (SELL if score <= _SELL_THRESHOLD else HOLD)
+
+    # VIX gate: suppress BUY in high-fear environments ────────────────────────
+    if signal == BUY and vix_level is not None and np.isfinite(vix_level) and vix_level >= _VIX_GATE:
+        details["vix_gate_triggered"] = round(vix_level, 1)
+        signal = HOLD
 
     return {"signal": signal, "score": score, "votes": votes, "details": details}
 
@@ -388,52 +526,77 @@ def compute_signal_single(ticker: str, macro_vote: int = 0) -> dict:
 
     bars_10 = _extract_first_10_min(intraday) if intraday is not None else None
 
-    # 30-day daily bars for prev_close and avg_volume
+    # 3-month daily bars for prev_close, avg_volume, RSI, MA50
+    prev_close = avg_volume = rsi = above_ma50 = None
     try:
-        daily = _with_retry(lambda: t.history(period="30d", interval="1d"), retries=3, base_delay=1.0)
+        daily = _with_retry(lambda: t.history(period="3mo", interval="1d"), retries=3, base_delay=1.0)
         if daily is not None and not daily.empty and len(daily) >= 2:
-            prev_close = float(daily["Close"].iloc[-2])
+            close      = daily["Close"]
+            prev_close = float(close.iloc[-2])
             avg_volume = float(daily["Volume"].mean())
-        else:
-            prev_close = None
-            avg_volume = None
+            rsi_s      = _compute_rsi(close)
+            rsi_v      = float(rsi_s.iloc[-1])
+            rsi        = rsi_v if np.isfinite(rsi_v) else None
+            if len(close) >= _MA_WINDOW:
+                ma50_v   = float(close.rolling(_MA_WINDOW).mean().iloc[-1])
+                above_ma50 = float(close.iloc[-1]) > ma50_v
     except Exception as exc:
         logger.warning("compute_signal_single(%s): daily fetch failed: %s", ticker, exc)
-        prev_close = None
-        avg_volume = None
 
-    return _compute_signal(bars_10, prev_close, avg_volume, macro_vote)
+    # Market context: VIX + sector ETF
+    mkt_ctx   = _fetch_market_context()
+    vix_level = mkt_ctx.get("vix")
+    etf       = _sector_etf(ticker)
+    sector_ret = mkt_ctx.get("etf_returns", {}).get(etf)
+
+    return _compute_signal(
+        bars_10,
+        prev_close       = prev_close,
+        avg_daily_volume = avg_volume,
+        macro_vote       = macro_vote,
+        rsi              = rsi,
+        above_ma50       = above_ma50,
+        sector_ret       = sector_ret,
+        vix_level        = vix_level,
+    )
 
 
 def refresh_signals(tickers: list[str], macro_vote: int = 0) -> dict[str, dict]:
     """
     Download intraday + daily data for all *tickers* and compute signals.
     Returns {ticker: {signal, score, votes, details}}.
-
-    This is called once per day at 9:40 AM ET and takes several minutes
-    for the full S&P 500.  Results are cached by the caller.
     """
     logger.info("Refreshing signals for %d tickers (macro_vote=%d)...", len(tickers), macro_vote)
 
     intraday = _get_intraday_bars(tickers)
-    daily = _get_daily_info(tickers)
+    daily    = _get_daily_info(tickers)
+    mkt_ctx  = _fetch_market_context()
+
+    vix_level    = mkt_ctx.get("vix")
+    etf_returns  = mkt_ctx.get("etf_returns", {})
 
     signals: dict[str, dict] = {}
     for ticker in tickers:
-        bars = intraday.get(ticker)
+        bars    = intraday.get(ticker)
         bars_10 = _extract_first_10_min(bars)
-        d = daily.get(ticker, {})
+        d       = daily.get(ticker, {})
+        etf     = _sector_etf(ticker)
         signals[ticker] = _compute_signal(
             bars_10,
-            prev_close=d.get("prev_close"),
-            avg_daily_volume=d.get("avg_volume"),
-            macro_vote=macro_vote,
+            prev_close       = d.get("prev_close"),
+            avg_daily_volume = d.get("avg_volume"),
+            macro_vote       = macro_vote,
+            rsi              = d.get("rsi"),
+            above_ma50       = d.get("above_ma50"),
+            sector_ret       = etf_returns.get(etf),
+            vix_level        = vix_level,
         )
 
-    buy_ct = sum(1 for v in signals.values() if v["signal"] == BUY)
+    buy_ct  = sum(1 for v in signals.values() if v["signal"] == BUY)
     sell_ct = sum(1 for v in signals.values() if v["signal"] == SELL)
     hold_ct = sum(1 for v in signals.values() if v["signal"] == HOLD)
-    logger.info("Signals complete — BUY: %d  SELL: %d  HOLD: %d", buy_ct, sell_ct, hold_ct)
+    logger.info("Signals complete — BUY: %d  SELL: %d  HOLD: %d  VIX=%.1f",
+                buy_ct, sell_ct, hold_ct, vix_level or 0)
     return signals
 
 
