@@ -727,7 +727,7 @@ function plotDashChart(divId, title, rows) {
     margin: { l: 52, r: 52, t: 36, b: 36 },
     xaxis:  { gridcolor: GRID, linecolor: GRID },
     yaxis:  { title: 'Price',  side: 'left',  gridcolor: GRID },
-    yaxis2: { title: 'Score', side: 'right', overlaying: 'y', range: [-4, 4], gridcolor: 'transparent', zeroline: false },
+    yaxis2: { title: 'Score', side: 'right', overlaying: 'y', range: [-8, 8], gridcolor: 'transparent', zeroline: false },
     legend: { orientation: 'h', y: -0.18, font: { size: 11 } },
   }, { displayModeBar: false, responsive: true });
 }
