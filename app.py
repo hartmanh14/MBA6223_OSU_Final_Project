@@ -505,6 +505,12 @@ def api_backtest_window(ticker: str, window: str):
     return jsonify(result)
 
 
+@app.route("/alpha")
+def alpha_page():
+    """Alpha ranking dashboard page."""
+    return render_template("alpha.html")
+
+
 @app.route("/drilldown/<ticker>")
 def drilldown(ticker: str):
     """Per-stock drill-down page showing all three pillars."""
