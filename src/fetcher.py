@@ -10,8 +10,8 @@ get_weekly_history(ticker, macro_vote) → list of past-5-day signal-vs-outcome 
 Signal logic (5 indicators, each ±1 or 0):
   1. Gap         — opening gap vs previous close  (threshold: ±1 %)
   2. Momentum    — first-10-min price return       (threshold: ±0.3 %)
-  3. VWAP        — last price vs cumulative VWAP   (threshold: ±0.1 %)
-  4. Volume      — first-10-min vol vs expected    (threshold: 1.5×/0.5×)
+  3. VWAP        — last price vs cumulative VWAP   (threshold: ±0.2 %)
+  4. Volume      — first-10-min vol vs expected    (threshold: 1.2×/0.5×)
   5. Macro trend — derived from Google Trends      (passed in as macro_vote)
 
 Score ≥ +2 → BUY  |  Score ≤ −2 → SELL  |  else → HOLD
@@ -40,8 +40,8 @@ _BUY_THRESHOLD = 2
 _SELL_THRESHOLD = -2
 _GAP_PCT_THRESHOLD = 1.0
 _MOMENTUM_PCT_THRESHOLD = 0.3
-_VWAP_PCT_THRESHOLD = 0.1
-_VOL_HIGH_RATIO = 1.5
+_VWAP_PCT_THRESHOLD = 0.2    # raised from 0.1 (grid-search optimised)
+_VOL_HIGH_RATIO = 1.2        # lowered from 1.5 (grid-search optimised)
 _VOL_LOW_RATIO = 0.5
 
 # Expected fraction of daily volume in the first 10 minutes (open premium)

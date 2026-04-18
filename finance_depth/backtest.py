@@ -61,8 +61,8 @@ log = logging.getLogger(__name__)
 # ── Signal thresholds — must match src/fetcher.py ─────────────────────────────
 _GAP_PCT_THRESHOLD    = 1.0    # %
 _MOMENTUM_PCT_THRESHOLD = 0.3  # %
-_VWAP_PCT_THRESHOLD   = 0.1    # %
-_VOL_HIGH_RATIO       = 1.5
+_VWAP_PCT_THRESHOLD   = 0.2    # % — raised from 0.1 (grid-search optimised)
+_VOL_HIGH_RATIO       = 1.2    # — lowered from 1.5 (grid-search optimised)
 _VOL_WINDOW           = 20     # days for rolling volume average
 _BUY_THRESHOLD        = 2
 _SELL_THRESHOLD       = -2
