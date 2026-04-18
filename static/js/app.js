@@ -310,7 +310,7 @@ function renderStockPanel(data) {
   setText('m-roe',         fmt(data.roe,            'pct'));
   setText('m-pb',          fmt(data.pb_ratio,       'multiple'));
   const dy = data.dividend_yield;
-  setText('m-divyield', dy != null ? (dy * 100).toFixed(2) + '%' : '—');
+  setText('m-divyield', dy != null ? dy.toFixed(2) + '%' : '—');
   applyMetricColors(data);
 
   // 52-week range (Signal tab)
