@@ -59,13 +59,13 @@ import yfinance as yf
 log = logging.getLogger(__name__)
 
 # ── Signal thresholds — must match src/fetcher.py ─────────────────────────────
-_GAP_PCT_THRESHOLD    = 1.0    # %
+_GAP_PCT_THRESHOLD    = 0.25   # % — lowered from 1.0 (long-only optimised)
 _MOMENTUM_PCT_THRESHOLD = 0.3  # %
-_VWAP_PCT_THRESHOLD   = 0.2    # % — raised from 0.1 (grid-search optimised)
-_VOL_HIGH_RATIO       = 1.2    # — lowered from 1.5 (grid-search optimised)
+_VWAP_PCT_THRESHOLD   = 0.2    # %
+_VOL_HIGH_RATIO       = 1.2    # — lowered from 1.5
 _VOL_WINDOW           = 20     # days for rolling volume average
-_BUY_THRESHOLD        = 2
-_SELL_THRESHOLD       = -2
+_BUY_THRESHOLD        = 1      # — lowered from 2 (long-only optimised)
+_SELL_THRESHOLD       = -1
 
 # ── Fetch periods by window ────────────────────────────────────────────────────
 # Each entry: (yfinance period to download, target trading-day count)
@@ -178,7 +178,7 @@ def _summarize(rows: List[Dict], full_close: pd.Series) -> Dict:
     else:
         accuracy = 0.0
 
-    # Cumulative strategy: long on BUY, short on SELL, flat on HOLD
+    # Cumulative strategy: long on BUY, flat on SELL and HOLD
     legs = []
     for _, row in df.iterrows():
         fwd = row["fwd_return"]
@@ -186,8 +186,6 @@ def _summarize(rows: List[Dict], full_close: pd.Series) -> Dict:
             continue
         if row["signal"] == "BUY":
             legs.append(fwd)
-        elif row["signal"] == "SELL":
-            legs.append(-fwd)
         else:
             legs.append(0.0)
     strat_cum = float(np.prod([1 + x for x in legs]) - 1) if legs else 0.0

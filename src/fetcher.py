@@ -8,13 +8,14 @@ refresh_signals(tickers, macro_vote) → dict {ticker: {signal, score, votes, de
 get_weekly_history(ticker, macro_vote) → list of past-5-day signal-vs-outcome dicts
 
 Signal logic (5 indicators, each ±1 or 0):
-  1. Gap         — opening gap vs previous close  (threshold: ±1 %)
+  1. Gap         — opening gap vs previous close  (threshold: ±0.25 %)
   2. Momentum    — first-10-min price return       (threshold: ±0.3 %)
   3. VWAP        — last price vs cumulative VWAP   (threshold: ±0.2 %)
   4. Volume      — first-10-min vol vs expected    (threshold: 1.2×/0.5×)
   5. Macro trend — derived from Google Trends      (passed in as macro_vote)
 
-Score ≥ +2 → BUY  |  Score ≤ −2 → SELL  |  else → HOLD
+Score ≥ +1 → BUY  |  Score ≤ −1 → SELL  |  else → HOLD
+Strategy: BUY = long, SELL/HOLD = flat (no short positions)
 """
 from __future__ import annotations
 
@@ -36,12 +37,12 @@ ET = pytz.timezone("America/New_York")
 MARKET_OPEN = dtime(9, 30)
 
 # Signal thresholds
-_BUY_THRESHOLD = 2
-_SELL_THRESHOLD = -2
-_GAP_PCT_THRESHOLD = 1.0
+_BUY_THRESHOLD = 1             # lowered from 2 (long-only optimised)
+_SELL_THRESHOLD = -1
+_GAP_PCT_THRESHOLD = 0.25     # % — lowered from 1.0 (long-only optimised)
 _MOMENTUM_PCT_THRESHOLD = 0.3
-_VWAP_PCT_THRESHOLD = 0.2    # raised from 0.1 (grid-search optimised)
-_VOL_HIGH_RATIO = 1.2        # lowered from 1.5 (grid-search optimised)
+_VWAP_PCT_THRESHOLD = 0.2
+_VOL_HIGH_RATIO = 1.2
 _VOL_LOW_RATIO = 0.5
 
 # Expected fraction of daily volume in the first 10 minutes (open premium)
