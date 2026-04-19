@@ -49,6 +49,7 @@ from src.universe import get_sp500
 # finance-depth package
 from finance_depth import signals as depth_signals
 from finance_depth import backtest as depth_backtest
+from finance_depth import alpha_ranker as depth_alpha
 from finance_depth.sentiment_modifier import compute_trend_sentiment
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -73,6 +74,7 @@ _TRENDS_FILE   = os.path.join(DATA_DIR, "trends_cache.json")
 _REFRESH_FILE  = os.path.join(DATA_DIR, "last_refresh.json")
 _DEPTH_FILE    = os.path.join(DATA_DIR, "depth_cache.json")
 _BACKTEST_FILE = os.path.join(DATA_DIR, "backtest_cache.json")
+_ALPHA_FILE    = os.path.join(DATA_DIR, "alpha_cache.json")
 
 # ── In-memory cache ────────────────────────────────────────────────────────────
 # Signals are now per-ticker, per-day dicts: {"_date": str, signal, score, ...}
@@ -85,6 +87,7 @@ _mem: dict[str, Any] = {
     "last_refresh": None,
     "depth": None,      # PipelineResult dict
     "backtests": {},    # {ticker: {"_date": str, data: dict}}
+    "alpha": None,      # {generated_at, benchmark, top, bottom} — standalone cache
 }
 
 
@@ -216,6 +219,15 @@ def _daily_refresh():
         ).to_dict()
         _save(_DEPTH_FILE, depth_result)
         _mem["depth"] = depth_result
+        # Keep standalone alpha cache in sync
+        alpha_payload = {
+            "generated_at": depth_result.get("generated_at", now_et.isoformat()),
+            "benchmark": depth_result.get("benchmark", "^GSPC"),
+            "top":    depth_result.get("alpha_top", []),
+            "bottom": depth_result.get("alpha_bottom", []),
+        }
+        _save(_ALPHA_FILE, alpha_payload)
+        _mem["alpha"] = alpha_payload
         logger.info(
             "Depth pipeline: %d top, %d bottom; trend shift=%+.0f",
             len(depth_result.get("alpha_top", [])),
@@ -261,6 +273,10 @@ def _warm_cache():
     depth_cached = _load(_DEPTH_FILE, {})
     if depth_cached:
         _mem["depth"] = depth_cached
+
+    alpha_cached = _load(_ALPHA_FILE, {})
+    if alpha_cached.get("top"):
+        _mem["alpha"] = alpha_cached
 
     refresh_info = _load(_REFRESH_FILE, {})
     if refresh_info.get("last_refresh"):
@@ -436,20 +452,46 @@ def api_status():
 
 @app.route("/api/alpha")
 def api_alpha():
-    """Return the 12-month trailing-alpha ranking (top 10 + bottom 10)."""
+    """Return the 12-month trailing-alpha ranking (top 10 + bottom 10).
+
+    Priority:
+    1. depth pipeline cache (includes trend data)
+    2. standalone alpha cache (previous session's batch download)
+    3. on-demand compute via alpha_ranker (triggers a yf.download batch)
+    """
+    # 1. Depth pipeline has it
     depth = _get_depth()
-    if not depth:
+    if depth and depth.get("alpha_top"):
         return jsonify({
-            "error": "depth_not_computed_yet",
-            "hint": "POST /api/refresh or wait for 9:40 AM ET scheduled refresh.",
-        }), 503
-    return jsonify({
-        "generated_at": depth.get("generated_at"),
-        "benchmark": depth.get("benchmark"),
-        "trend": depth.get("trend"),
-        "top": depth.get("alpha_top", []),
-        "bottom": depth.get("alpha_bottom", []),
-    })
+            "generated_at": depth.get("generated_at"),
+            "benchmark": depth.get("benchmark"),
+            "trend": depth.get("trend"),
+            "top": depth.get("alpha_top", []),
+            "bottom": depth.get("alpha_bottom", []),
+        })
+
+    # 2. Standalone alpha cache
+    if _mem["alpha"] and _mem["alpha"].get("top"):
+        return jsonify(_mem["alpha"])
+
+    # 3. On-demand compute — uses previous session's daily adjusted close
+    logger.info("Alpha ranking: computing on-demand via alpha_ranker")
+    try:
+        universe = _get_universe()
+        tickers = [s["ticker"] for s in universe if s.get("ticker")]
+        ranked = depth_alpha.rank_trailing_alpha(tickers, top_n=10, bottom_n=10)
+        payload = {
+            "generated_at": datetime.now(ET).isoformat(),
+            "benchmark": "^GSPC",
+            "top":    [r.to_dict() for r in ranked["top"]],
+            "bottom": [r.to_dict() for r in ranked["bottom"]],
+        }
+        _mem["alpha"] = payload
+        _save(_ALPHA_FILE, payload)
+        return jsonify(payload)
+    except Exception as exc:
+        logger.exception("Alpha on-demand compute failed: %s", exc)
+        return jsonify({"error": str(exc), "hint": "Alpha compute failed — try again shortly."}), 503
 
 
 @app.route("/api/composite/<ticker>")
